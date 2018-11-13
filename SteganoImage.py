@@ -1,16 +1,13 @@
 import math
-
-# cover image
-coverImage = [240, 15, 85, 94, 25, 92, 69, 154, 250, 241, 161, 185, 112, 105, 105, 85, 9, 99, 64, 123, 201, 79, 104, 12,
-              100, 97, 118, 49, 206, 111, 190]
+from PIL import Image
 
 # secret stream
-secretStream = [int("01001110", 2), int("01100101", 2), int("01101100", 2),
-                int("01110011", 2), int("01101111", 2), int("01101110", 2)]
-
+secretStream = [78, 101, 108, 115, 111, 110]
 
 ranges = [range(0, 1), range(1, 3), range(3, 7), range(7, 15), range(15, 31), range(31, 63), range(63, 127),
           range(127, 255)]
+
+imageSize = (0, 0)
 
 
 # Searches for value d in the ranges list
@@ -69,28 +66,65 @@ def invCalc(g, m, d):
     return g1prime, g2prime
 
 
-def verifInvCalc():
-    mprime = 10
-    msecond = 30
-    m = mprime + msecond
-
-    g = [183, 29]
-
-    a = invCalc(g, m, 2)
-    b = invCalc(invCalc(g, mprime, 2), msecond, 2)
-
-    if a == b:
-        print("Function invCalc check succeeded!")
-    else:
-        print("Function invCalc check failed!")
-
-
 # takes a binary string as input
 # returns an integer array with its contents
 def binStrToIntArray(bstr):
     vals = [int(bstr[i:i+8], 2) for i in range(0, len(bstr), 8)]
 
     return vals
+
+
+def invertLines(pixelList):
+    indx = 0
+    res = []
+
+    while indx < len(pixelList):
+        line = pixelList[indx:indx + imageSize[0]]
+
+        if indx/imageSize[0] % 2 == 0:
+            res += line
+        else:
+            res += line[::-1]
+
+        indx += imageSize[0]
+
+    return res
+
+
+# transforms the list pixelValues
+# according to zigzag pattern
+def zigzagRead(pixelValues):
+    indx = 0
+    res = []
+
+    while indx < imageSize[1]:
+        line = []
+
+        for col in range(0, imageSize[0]):
+            line.append(pixelValues[col, indx])
+
+        if indx % 2 == 0:
+            res += line
+        else:
+            res += line[::-1]
+
+        indx += 1
+
+    return res
+
+# opens the image file at path filePath
+# returns a list of its pixels read in zizgag pattern
+def readImage(filePath):
+    global imageSize
+
+    img = Image.open(filePath)
+    pix = img.load()
+
+    imageSize = img.size
+
+    readpix = zigzagRead(pix)
+
+    return readpix
 
 
 # Encode the secret stream s in the cover image p
@@ -112,31 +146,37 @@ def WuTsaiEncode(p, s):
         n = int(math.log(widthOfRange(k), 2))
 
         # d' computation
-        dprime = ranges[k][0] + getSecretBits(bitPos, n, s)
+        dprime = ranges[k][0]
 
-        if d < 0:
-            dprime = dprime * -1
+        if n != 0:
+            dprime += getSecretBits(bitPos, n, s)
 
-        # new p values
-        m = dprime - d
+            if d < 0:
+                dprime = dprime * -1
 
-        g = [p[currBlockIndx], p[currBlockIndx + 1]]
-        g1prime, g2prime = invCalc(g, m, d)
+            # new p values
+            m = dprime - d
 
-        # falling-off-boundary checking
-        ghat1, ghat2 = invCalc(g, (ranges[k][widthOfRange(k) - 1]) - d, d)
+            g = [p[currBlockIndx], p[currBlockIndx + 1]]
+            g1prime, g2prime = invCalc(g, m, d)
 
-        if (0 <= ghat1 <= 255) and (0 <= ghat2 <= 255):
-            p[currBlockIndx] = g1prime
-            p[currBlockIndx + 1] = g2prime
+            # falling-off-boundary checking
+            ghat1, ghat2 = invCalc(g, (ranges[k][widthOfRange(k) - 1]) - d, d)
 
-            bitPos += n
+            if (0 <= ghat1 <= 255) and (0 <= ghat2 <= 255):
+                p[currBlockIndx] = g1prime
+                p[currBlockIndx + 1] = g2prime
+
+                bitPos += n
 
         # a block is composed of two bytes, so we have to jump 2 by 2
         currBlockIndx += 2
 
     if bitPos < len(s) * 8:
         print("Cover image too small to hide the secret!")
+        return []
+    else:
+        return p
 
 
 def WuTsaiDecode(p, secretLength):
@@ -151,32 +191,46 @@ def WuTsaiDecode(p, secretLength):
         # range of d
         k = rangeOf(abs(dstar))
 
-        gstar = [p[currBlockIndx], p[currBlockIndx + 1]]
+        if k != 0:
+            gstar = [p[currBlockIndx], p[currBlockIndx + 1]]
 
-        ghat1, ghat2 = invCalc(gstar, (ranges[k][widthOfRange(k) - 1]) - dstar, dstar)
+            ghat1, ghat2 = invCalc(gstar, (ranges[k][widthOfRange(k) - 1]) - dstar, dstar)
 
-        if (0 <= ghat1 <= 255) and (0 <= ghat2 <= 255):  # the block was used to encode data
-            if dstar >= 0:
-                binVal = str(bin(dstar - ranges[k][0])[2:].zfill(k))
-            else:
-                binVal = str(bin((-1 * dstar) - ranges[k][0])[2:].zfill(k))
+            if (0 < ghat1 <= 255) and (0 < ghat2 <= 255):  # the block was used to encode data
+                if dstar >= 0:
+                    binVal = str(bin(dstar - ranges[k][0])[2:].zfill(k))
+                else:
+                    binVal = str(bin((-1 * dstar) - ranges[k][0])[2:].zfill(k))
 
-            decSizeDelta = len(binString) + len(binVal) - (secretLength*8)
+                decSizeDelta = len(binString) + len(binVal) - (secretLength*8)
 
-            if decSizeDelta > 0:
-                binVal = binVal[decSizeDelta:
-                         ]
-            binString += binVal
+                if decSizeDelta > 0:
+                    binVal = binVal[decSizeDelta:]
 
-        # transform the res to a binary representation of length k
+                binString += binVal
+
         currBlockIndx += 2
 
     return binStrToIntArray(binString)
 
 
-print("Encoded values: " + str(secretStream))
-WuTsaiEncode(coverImage, secretStream)
+# PROOF OF CONCEPT
+# encoding
+print("Secret values to encode     : " + str(secretStream))
 
-print("Decoded values: " + str(WuTsaiDecode(coverImage, len(secretStream))))
+coverImage = readImage("test/mahatmagandhi.png")
+cryptoData = WuTsaiEncode(coverImage, secretStream)
 
+cryptoImage = Image.new('L', imageSize)
+data = invertLines(cryptoData)
+
+cryptoImage.putdata(data)
+cryptoImage.save('test/cryptoGandhi.png', 'PNG')
+
+
+# decoding
+myImage = readImage('test/cryptoGandhi.png')
+
+myVals = WuTsaiDecode(myImage, len(secretStream))
+print("Recovered values from image : " + str(myVals))
 
