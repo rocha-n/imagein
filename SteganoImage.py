@@ -1,14 +1,15 @@
 import math
 from PIL import Image
 
+# turns debug output on
+verbose = False
+
 # secret stream
 secretStream = [78, 101, 108, 115, 111, 110]
 
-ranges = [range(0, 1), range(1, 3), range(3, 7), range(7, 15), range(15, 31), range(31, 63), range(63, 127),
-          range(127, 255)]
+ranges = []
 
 imageSize = (0, 0)
-
 
 # Searches for value d in the ranges list
 # Returns the index of list where val is
@@ -25,6 +26,32 @@ def rangeOf(val):
     # val not found
     return -1
 
+
+# Tests that the given range is valid
+def validRange(rng):
+    global verbose
+    counter = 1
+    totVals = 0
+
+    if verbose:
+        print("-- Checking ranges --")
+
+    for val in rng:
+        currSpan = len(val)
+        if verbose:
+            print("Line " + str(counter) + ": " + str(currSpan) + " values")
+        totVals += currSpan
+        counter += 1
+
+    if totVals != 256:
+        if verbose:
+            print("The current number of values of the ranges is " + str(totVals) + ".\nExpected 256 values!")
+        return False
+    else:
+        if verbose:
+            print("Ranges seem to be correct!")
+        ranges = rng
+        return True
 
 # Returns the width of the list at ranges[r]
 def widthOfRange(r):
@@ -148,26 +175,25 @@ def WuTsaiEncode(p, s):
         # d' computation
         dprime = ranges[k][0]
 
-        if n != 0:
-            dprime += getSecretBits(bitPos, n, s)
+        dprime += getSecretBits(bitPos, n, s)
 
-            if d < 0:
-                dprime = dprime * -1
+        if d < 0:
+            dprime = dprime * -1
 
-            # new p values
-            m = dprime - d
+        # new p values
+        m = dprime - d
 
-            g = [p[currBlockIndx], p[currBlockIndx + 1]]
-            g1prime, g2prime = invCalc(g, m, d)
+        g = [p[currBlockIndx], p[currBlockIndx + 1]]
+        g1prime, g2prime = invCalc(g, m, d)
 
-            # falling-off-boundary checking
-            ghat1, ghat2 = invCalc(g, (ranges[k][widthOfRange(k) - 1]) - d, d)
+        # falling-off-boundary checking
+        ghat1, ghat2 = invCalc(g, (ranges[k][widthOfRange(k) - 1]) - d, d)
 
-            if (0 <= ghat1 <= 255) and (0 <= ghat2 <= 255):
-                p[currBlockIndx] = g1prime
-                p[currBlockIndx + 1] = g2prime
+        if (0 <= ghat1 <= 255) and (0 <= ghat2 <= 255):
+            p[currBlockIndx] = g1prime
+            p[currBlockIndx + 1] = g2prime
 
-                bitPos += n
+            bitPos += n
 
         # a block is composed of two bytes, so we have to jump 2 by 2
         currBlockIndx += 2
@@ -191,28 +217,39 @@ def WuTsaiDecode(p, secretLength):
         # range of d
         k = rangeOf(abs(dstar))
 
-        if k != 0:
-            gstar = [p[currBlockIndx], p[currBlockIndx + 1]]
+        pixNb = int(math.log(ranges[k][widthOfRange(k) - 1] + 1, 2))
 
-            ghat1, ghat2 = invCalc(gstar, (ranges[k][widthOfRange(k) - 1]) - dstar, dstar)
+        gstar = [p[currBlockIndx], p[currBlockIndx + 1]]
 
-            if (0 < ghat1 <= 255) and (0 < ghat2 <= 255):  # the block was used to encode data
-                if dstar >= 0:
-                    binVal = str(bin(dstar - ranges[k][0])[2:].zfill(k))
-                else:
-                    binVal = str(bin((-1 * dstar) - ranges[k][0])[2:].zfill(k))
+        ghat1, ghat2 = invCalc(gstar, (ranges[k][widthOfRange(k) - 1]) - dstar, dstar)
 
-                decSizeDelta = len(binString) + len(binVal) - (secretLength*8)
+        if (0 < ghat1 <= 255) and (0 < ghat2 <= 255):  # the block was used to encode data
+            if dstar >= 0:
+                binVal = str(bin(dstar - ranges[k][0])[2:].zfill(pixNb))
+            else:
+                binVal = str(bin((-1 * dstar) - ranges[k][0])[2:].zfill(pixNb))
 
-                if decSizeDelta > 0:
-                    binVal = binVal[decSizeDelta:]
+            decSizeDelta = len(binString) + len(binVal) - (secretLength*8)
 
-                binString += binVal
+            if decSizeDelta > 0:
+                binVal = binVal[decSizeDelta:]
+
+            binString += binVal
 
         currBlockIndx += 2
 
     return binStrToIntArray(binString)
 
+
+rangeWuTsai1 = [range(0, 8), range(8, 16), range(16, 32), range(32, 64), range(64, 128), range(128, 256)]
+rangeWuTsai2 = [range(0, 2), range(2, 4), range(4, 8), range(8, 12), range(12, 16), range(16, 24), range(24, 32),
+                range(32, 48), range(48, 64), range(64, 96), range(96, 128), range(128, 192), range(192, 256)]
+
+if validRange(rangeWuTsai1):
+    ranges = rangeWuTsai1
+else:
+    print("Invalid range specified!")
+    exit(1)
 
 # PROOF OF CONCEPT
 # encoding
